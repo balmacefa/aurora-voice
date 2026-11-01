@@ -1,0 +1,7 @@
+winrt-runtime
+winrt-windows-media-speechrecognition
+winrt-windows-globalization
+winrt-windows-foundation
+keyboard
+pystray
+pillow

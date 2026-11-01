@@ -1,0 +1,36 @@
+Aurora/
+├── README.md                 # Documentación principal del proyecto
+├── .gitignore               # Archivos a ignorar en git
+├── requirements.txt         # Dependencias de Python
+├── main.py                  # Punto de entrada de la aplicación
+├── run_aurora.bat          # Launcher con elevación a admin
+│
+├── aurora/                  # Paquete principal
+│   ├── __init__.py         # Versión del paquete
+│   ├── app.py              # Orquestador principal
+│   ├── config.py           # Gestión de configuración
+│   ├── errors.py           # Excepciones personalizadas
+│   ├── hotkey.py           # Gestión de hotkeys globales
+│   ├── injector.py         # Inyección de texto Unicode
+│   ├── overlay.py          # Ventana overlay de feedback
+│   ├── speech.py           # Motor WinRT SpeechRecognizer
+│   └── tray.py             # Icono de bandeja del sistema
+│
+├── tests/                   # Tests
+│   └── smoke_test.py       # Smoke test de instalación
+│
+└── docs/                    # Documentación
+    ├── RE-WinH-Dictation.md # Reverse engineering de Win+H (existente)
+    └── TESTING.md           # Checklist de tests manuales
+
+ARCHIVOS CLAVE:
+- main.py: Entry point, crea App() y llama a app.run()
+- aurora/app.py: Orquestador que coordina todos los componentes
+- aurora/speech.py: Motor de reconocimiento con WinRT en thread dedicado
+- aurora/overlay.py: UI de feedback en tiempo real
+- run_aurora.bat: Launcher recomendado (con elevación a admin)
+
+CONFIG:
+%APPDATA%\Aurora\config.json
+- language: "es-ES" (o "en-US", "fr-FR", etc.)
+- hotkey: "ctrl+alt+h" (configurable)
