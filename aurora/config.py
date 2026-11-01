@@ -2,8 +2,49 @@
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Dict, Any
+
+
+def _appdata_dir() -> Path:
+    return Path(os.getenv('APPDATA') or Path.home()) / 'Aurora'
+
+
+def _is_writable_dir(path: Path) -> bool:
+    """Comprueba que se puede crear el directorio y escribir en él."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / '.aurora_write_test'
+        probe.write_text('ok', encoding='utf-8')
+        probe.unlink()
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_data_dir() -> Path:
+    """Resuelve el directorio de datos.
+
+    Prioridad: AURORA_DATA_DIR > AURORA_PORTABLE=1 > marcador Aurora.portable
+    junto al exe (frozen) > %APPDATA%\\Aurora. Si a/b/c no son escribibles,
+    se usa %APPDATA%\\Aurora.
+    """
+    frozen = getattr(sys, 'frozen', False)
+    exe_dir = Path(sys.executable).parent if frozen else None
+
+    candidate = None
+    env_dir = os.getenv('AURORA_DATA_DIR')
+    if env_dir:
+        candidate = Path(env_dir)
+    elif os.getenv('AURORA_PORTABLE') == '1':
+        candidate = (exe_dir if frozen else Path.cwd()) / 'data'
+    elif frozen and (exe_dir / 'Aurora.portable').exists():
+        candidate = exe_dir / 'data'
+
+    if candidate is not None and _is_writable_dir(candidate):
+        return candidate
+    return _appdata_dir()
 
 
 class ConfigManager:
@@ -15,7 +56,7 @@ class ConfigManager:
     }
     
     def __init__(self):
-        self.config_dir = Path(os.getenv('APPDATA')) / 'Aurora'
+        self.config_dir = _resolve_data_dir()
         self.config_file = self.config_dir / 'config.json'
         self.config: Dict[str, Any] = {}
         self._ensure_config_dir()
