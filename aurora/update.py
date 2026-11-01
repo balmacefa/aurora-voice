@@ -132,32 +132,21 @@ def download(url, dest_path, timeout=60, progress=None):
 
 
 # ------------------------------------------------------------------ update
-_BAT = r"""@echo off
-setlocal
-set "PID={pid}"
-set "NEW={new}"
-set "EXE={exe}"
-set /a N=0
-:wait
-tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL
-if errorlevel 1 goto swap
-set /a N+=1
-if %N% GEQ 30 goto swap
-timeout /t 1 /nobreak >NUL
-goto wait
-:swap
-set /a M=0
-:retry
-move /Y "%NEW%" "%EXE%" >NUL 2>&1
-if not errorlevel 1 goto launch
-set /a M+=1
-if %M% GEQ 10 goto fail
-timeout /t 1 /nobreak >NUL
-goto retry
-:launch
-start "" "%EXE%"
-:fail
-(goto) 2>NUL & del "%~f0"
+# Helper en PowerShell (mas robusto que .bat en modo onefile/windowed sin
+# consola): espera a que el proceso muera, reemplaza el exe y RELANZA con
+# Start-Process (hereda la window-station interactiva -> la GUI arranca).
+_PS = r"""$ErrorActionPreference = 'SilentlyContinue'
+$targetPid = __PID__
+$new = '__NEW__'
+$exe = '__EXE__'
+try { Wait-Process -Id $targetPid -Timeout 30 } catch {}
+$ok = $false
+for ($i = 0; $i -lt 20; $i++) {
+  try { Move-Item -LiteralPath $new -Destination $exe -Force -ErrorAction Stop; $ok = $true; break }
+  catch { Start-Sleep -Milliseconds 600 }
+}
+if ($ok) { Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) }
+Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force
 """
 
 
@@ -181,11 +170,12 @@ def apply_update(dry_run=False, url=None) -> dict:
     except UpdateError as e:
         return {"ok": False, "reason": str(e)}
 
-    bat_path = Path(tempfile.gettempdir()) / f"aurora_update_{os.getpid()}.bat"
+    bat_path = Path(tempfile.gettempdir()) / f"aurora_update_{os.getpid()}.ps1"
     try:
-        bat_path.write_text(
-            _BAT.format(pid=os.getpid(), new=new_path, exe=exe_path),
-            encoding="mbcs", newline="\r\n")
+        script = (_PS.replace("__PID__", str(os.getpid()))
+                     .replace("__NEW__", str(new_path))
+                     .replace("__EXE__", str(exe_path)))
+        bat_path.write_text(script, encoding="utf-8", newline="\r\n")
     except OSError as e:
         return {"ok": False, "reason": f"No se pudo crear el helper: {e}"}
 
@@ -195,12 +185,15 @@ def apply_update(dry_run=False, url=None) -> dict:
         return result
 
     try:
+        # NO usar DETACHED_PROCESS: desvincula de la window-station interactiva
+        # y el exe relanzado no podria crear la GUI (tkinter).
         flags = (getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                 | getattr(subprocess, "DETACHED_PROCESS", 0)
                  | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
-        subprocess.Popen(["cmd.exe", "/c", str(bat_path)], creationflags=flags,
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, close_fds=True)
+        subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy",
+                          "Bypass", "-WindowStyle", "Hidden", "-File", str(bat_path)],
+                         creationflags=flags, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         close_fds=True)
     except OSError as e:
         return {"ok": False, "reason": f"No se pudo lanzar el helper: {e}"}
     print("Actualizando Aurora, reiniciando...", flush=True)
