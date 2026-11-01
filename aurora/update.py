@@ -145,7 +145,10 @@ for ($i = 0; $i -lt 20; $i++) {
   try { Move-Item -LiteralPath $new -Destination $exe -Force -ErrorAction Stop; $ok = $true; break }
   catch { Start-Sleep -Milliseconds 600 }
 }
-if ($ok) { Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) }
+# Relanzar via explorer.exe para aterrizar SIEMPRE en el escritorio
+# interactivo del usuario (aunque el update se dispare desde una cadena
+# de procesos sin window-station interactiva).
+if ($ok) { Start-Process -FilePath "explorer.exe" -ArgumentList $exe }
 Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force
 """
 
