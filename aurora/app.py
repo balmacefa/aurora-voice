@@ -5,10 +5,14 @@ import queue
 import tkinter as tk
 import os
 import subprocess
+import time
 from typing import Optional
 
 from aurora.config import ConfigManager
-from aurora.errors import UnsupportedOSError, LanguageNotInstalledError
+from aurora.errors import (
+    UnsupportedOSError, LanguageNotInstalledError,
+    MicrophonePermissionError, MicrophoneNotFoundError,
+)
 from aurora.hotkey import HotkeyManager
 from aurora.injector import TextInjector
 from aurora.overlay import OverlayWindow
@@ -32,7 +36,10 @@ class App:
         # Estado
         self.is_dictating = False
         self.current_partial = ""
-        
+        self._exiting = False
+        self._hide_after_id = None
+        self._last_toggle = 0.0
+
         # Componentes (se inicializan en run)
         self.root: Optional[tk.Tk] = None
         self.overlay: Optional[OverlayWindow] = None
@@ -70,7 +77,7 @@ class App:
         
         # Crear gestor de hotkeys
         self.hotkey = HotkeyManager()
-        hotkey_registered = self.hotkey.start(self.config.hotkey, self.toggle_dictation)
+        hotkey_registered = self.hotkey.start(self.config.hotkey, self._request_toggle)
         if not hotkey_registered:
             error_msg = (
                 f"\n[ADVERTENCIA] No se pudo registrar el hotkey '{self.config.hotkey}'.\n"
@@ -78,26 +85,61 @@ class App:
                 f"Los hotkeys globales requieren permisos elevados en Windows.\n"
             )
             print(error_msg)
-            # Intentar notificar en tray si ya est
-en iniciado
-            # (pero el tray se inicia despu
-es, as
-i que solo print por ahora)
+            # Intentar notificar en tray si ya esta iniciado
+            # (pero el tray se inicia despues, asi que solo print por ahora)
         
         # Crear icono de bandeja
         self.tray = TrayIcon(
-            on_toggle=self.toggle_dictation,
-            on_language_change=self._on_language_change,
+            on_toggle=self._request_toggle,
+            on_language_change=lambda lang: self._post('language', lang),
             on_config=self._open_config,
-            on_exit=self._on_exit
+            on_exit=lambda: self._post('exit', None)
         )
         self.tray.start()
+        
+        # Servidor de control local (IPC) para manejar Aurora sin UI (MCP/CLI)
+        try:
+            from aurora.ipc import start_control_server
+            self._control_server = start_control_server(self)
+        except Exception as _e:
+            print(f"[aviso] servidor de control no disponible: {_e}")
         
         # Iniciar consumer de mensajes
         self._check_message_queue()
         
         # Entrar en mainloop de tkinter
-        self.root.mainloop()
+        try:
+            self.root.mainloop()
+        finally:
+            self._cleanup()
+
+    def _cleanup(self):
+        """Libera recursos al salir (idempotente, thread principal)"""
+        self._exiting = True
+        self._shutdown()
+        if self.tray:
+            try:
+                self.tray.stop()
+            except Exception:
+                pass
+        if self.root:
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+            self.root = None
+
+    def _post(self, kind: str, data):
+        """Encola un comando para ejecutarse en el thread de tkinter"""
+        self.message_queue.put((kind, data))
+
+    def _request_toggle(self):
+        """Llamado desde hotkey/tray (otros threads): delega al thread de UI"""
+        now = time.monotonic()
+        if now - self._last_toggle < 0.3:  # anti-rebote (auto-repeat de teclas)
+            return
+        self._last_toggle = now
+        self._post('toggle', None)
     
     def toggle_dictation(self):
         """Activa/desactiva el dictado"""
@@ -107,13 +149,14 @@ i que solo print por ahora)
             self._start_dictation()
     
     def _start_dictation(self):
-        """Inicia la sesión de dictado"""
+        """Inicia la sesion de dictado"""
         if self.is_dictating:
             return
         
+        self._cancel_hide()
         self.is_dictating = True
         self.current_partial = ""
-        
+
         # Mostrar overlay
         self.overlay.set_state("Escuchando...", "#00ff00")
         self.overlay.clear_text()
@@ -130,18 +173,34 @@ i que solo print por ahora)
             on_error=self._on_error
         )
     
-    def _stop_dictation(self):
-        """Detiene la sesión de dictado"""
+    def _cancel_hide(self):
+        if self._hide_after_id is not None and self.root:
+            try:
+                self.root.after_cancel(self._hide_after_id)
+            except Exception:
+                pass
+        self._hide_after_id = None
+
+    def _hide_error(self):
+        self._hide_after_id = None
+        if not self.is_dictating:
+            self.overlay.hide()
+
+    def _stop_dictation(self, hide: bool = True):
+        """Detiene la sesion de dictado"""
         if not self.is_dictating:
             return
-        
+
         self.is_dictating = False
-        
+
         # Detener motor de voz
         self.speech.stop()
-        
-        # Ocultar overlay
-        self.overlay.hide()
+
+        # Ocultar overlay (tras un error, dejar visible el mensaje unos segundos)
+        if hide:
+            self.overlay.hide()
+        elif self.root:
+            self._hide_after_id = self.root.after(3000, self._hide_error)
         
         # Actualizar tray
         self.tray.update_status(False)
@@ -176,40 +235,65 @@ i que solo print por ahora)
             while True:
                 msg_type, data = self.message_queue.get_nowait()
                 
-                if msg_type == 'hypothesis':
-                    # Actualizar texto parcial en overlay
-                    self.current_partial = data
-                    self.overlay.update_text(data)
-                
-                elif msg_type == 'result':
-                    # Resultado final: inyectar texto
-                    if data:
-                        self.injector.inject_text(data)
-                    # Limpiar parcial
-                    self.current_partial = ""
-                    self.overlay.clear_text()
-                    self.overlay.set_state("Escuchando...", "#00ff00")
-                
-                elif msg_type == 'error':
-                    # Mostrar error en overlay
-                    error = data
-                    if isinstance(error, LanguageNotInstalledError):
-                        msg = f"Idioma no instalado: {self.config.language}"
-                    else:
-                        msg = f"Error: {type(error).__name__}"
-                    
-                    self.overlay.set_state(msg, "#ff0000")
-                    self.overlay.clear_text()
-                    
-                    # Detener dictado tras error
-                    self._stop_dictation()
-        
+                try:
+                    self._handle_message(msg_type, data)
+                except Exception as e:
+                    print(f"Error procesando mensaje '{msg_type}': {e}")
+                if self._exiting:
+                    return
+
         except queue.Empty:
             pass
-        
+
         # Re-programar para dentro de 100ms
-        if self.root:
+        if self.root and not self._exiting:
             self.root.after(100, self._check_message_queue)
+
+    def _handle_message(self, msg_type, data):
+        """Procesa un mensaje en el thread de tkinter"""
+        if msg_type == 'toggle':
+            self.toggle_dictation()
+
+        elif msg_type == 'language':
+            self._on_language_change(data)
+
+        elif msg_type == 'exit':
+            self._on_exit()
+
+        elif msg_type == 'hypothesis':
+            if not self.is_dictating:
+                return  # parcial obsoleto de una sesion ya detenida
+            self.current_partial = data
+            self.overlay.update_text(data)
+
+        elif msg_type == 'result':
+            # Resultado final: inyectar texto (tambien si llega justo tras parar)
+            if data:
+                self.injector.inject_text(data)
+            self.current_partial = ""
+            if self.is_dictating:
+                self.overlay.clear_text()
+                self.overlay.set_state("Escuchando...", "#00ff00")
+
+        elif msg_type == 'error':
+            if not self.is_dictating:
+                return  # error de una sesion anterior
+            error = data
+            if isinstance(error, LanguageNotInstalledError):
+                msg = f"Idioma no instalado: {self.config.language}"
+            elif isinstance(error, MicrophonePermissionError):
+                msg = "Sin permiso de micrófono / voz"
+            elif isinstance(error, MicrophoneNotFoundError):
+                msg = "Micrófono no disponible"
+            else:
+                msg = f"Error: {type(error).__name__}"
+            print(f"Error de dictado: {error!r}")
+
+            self.overlay.set_state(msg, "#ff0000")
+            self.overlay.clear_text()
+
+            # Detener dictado tras error, dejando el mensaje visible unos segundos
+            self._stop_dictation(hide=False)
     
     def _on_language_change(self, language_code: str):
         """Handler para cambio de idioma desde el menú"""
@@ -235,31 +319,38 @@ i que solo print por ahora)
             print(f"Error abriendo config: {e}")
     
     def _on_exit(self):
-        """Handler para salir de la aplicación"""
-        # Detener dictado si está activo
+        """Salir de la aplicación (se ejecuta en el thread de tkinter)"""
+        self._exiting = True
+        self._shutdown()
+        if self.root:
+            self.root.quit()
+
+    def _shutdown(self):
+        """Detiene dictado, motor de voz y hotkey (idempotente)"""
+        self._cancel_hide()
         if self.is_dictating:
             self._stop_dictation()
-        
+
         # Detener motor de voz y esperar con timeout
         if self.speech:
             self.speech.stop()
-            if self.speech.thread and self.speech.thread.is_alive():
-                self.speech.thread.join(timeout=3.0)
-        
-        # Drenar cola de mensajes pendientes antes de cerrar
+            t = self.speech.thread
+            if t and t.is_alive():
+                t.join(timeout=3.0)
+
+        # Drenar cola: inyectar solo resultados finales pendientes
         try:
             while True:
                 msg_type, data = self.message_queue.get_nowait()
-                # Procesar especialmente 'result' para inyectar texto pendiente
                 if msg_type == 'result' and data:
-                    self.injector.inject_text(data)
+                    try:
+                        self.injector.inject_text(data)
+                    except Exception as e:
+                        print(f"Error inyectando texto: {e}")
         except queue.Empty:
             pass
-        
-        # Detener hotkey
+
+        # Desregistrar hotkey
         if self.hotkey:
             self.hotkey.stop()
-        
-        # Cerrar ventana tkinter
-        if self.root:
-            self.root.quit()
+            self.hotkey = None

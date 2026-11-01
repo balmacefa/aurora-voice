@@ -195,6 +195,35 @@ def test_injector():
         return False
 
 
+def test_regressions():
+    """Regresiones: mapeo de errores de speech y acciones del menu del tray"""
+    print("\n[OK] Test 7: Regresiones (errores speech, menu tray)...")
+    try:
+        from aurora.speech import SpeechEngine
+        from aurora.errors import MicrophonePermissionError, LanguageNotInstalledError
+        e = OSError(); e.winerror = -2147199735  # 0x80045509
+        assert isinstance(SpeechEngine._map_error(e, "es-ES"), MicrophonePermissionError)
+        e = OSError(); e.winerror = -2147200966  # 0x8004503A
+        assert isinstance(SpeechEngine._map_error(e, "es-ES"), LanguageNotInstalledError)
+        assert isinstance(SpeechEngine._map_error(PermissionError(), "es-ES"), MicrophonePermissionError)
+
+        from aurora.tray import TrayIcon
+        got = []
+        t = TrayIcon(lambda: None, got.append, lambda: None, lambda: None)
+        menu = t._create_menu()
+        lang_menu = [i for i in menu.items if i.text == 'Idioma'][0].submenu
+        item = [i for i in lang_menu.items if i.text == 'English (US)'][0]
+        item(None)  # pystray invoca action(icon, item)
+        assert got == ['en-US'], got
+        print("  [OK] Regresiones OK")
+        return True
+    except Exception as e:
+        print(f"  [FAIL] ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def main():
     """Ejecuta todos los tests"""
     print("=" * 60)
@@ -209,6 +238,7 @@ def main():
     results.append(test_winrt_api_names())
     results.append(test_speech_recognizer())
     results.append(test_injector())
+    results.append(test_regressions())
     
     print("\n" + "=" * 60)
     passed = sum(results)

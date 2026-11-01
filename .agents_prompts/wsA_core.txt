@@ -1,0 +1,22 @@
+Eres ingeniero QA + fix del proyecto Aurora (app de dictado por voz para Windows 11, GUI tkinter) ubicado en el directorio actual.
+
+ALCANCE ESTRICTO (no salirte):
+- SOLO edita archivos YA EXISTENTES dentro de aurora/ (app.py, speech.py, hotkey.py, injector.py, overlay.py, tray.py, config.py, errors.py) y tests/smoke_test.py.
+- NO crees archivos nuevos. NO toques main.py, requirements.txt, ni nada fuera de aurora/ y tests/.
+- NO crees carpetas packaging/ ni tools/ ni aurora/ipc.py (otro agente trabaja ahí en paralelo).
+
+Tareas:
+1) Revisa con ojo critico aurora/*.py buscando BUGS REALES: manejo de threads y del event loop asyncio de WinRT en speech.py, callbacks cruzando threads, cierre/liberacion de recursos, condiciones de carrera en start/stop de dictado, registro/liberacion de hotkeys, inyeccion de texto Unicode, manejo de errores de permisos de microfono e idioma no instalado, y cierre limpio desde el tray.
+2) Corrige los bugs encontrados (cambios minimos y correctos, sin reescribir todo).
+3) Verifica que los imports funcionan: ejecuta
+   "C:\Users\fabia\AppData\Local\Programs\Python\Python312\python.exe" -c "import aurora.app, aurora.speech, aurora.hotkey, aurora.injector, aurora.overlay, aurora.tray, aurora.config, aurora.errors; print('IMPORTS_OK')"
+   Si faltan dependencias, instalalas SOLO para este Python:
+   "C:\Users\fabia\AppData\Local\Programs\Python\Python312\python.exe" -m pip install -r requirements.txt
+4) Ejecuta y arregla tests/smoke_test.py con ese mismo Python hasta que pase (o documenta por que un check no puede pasar en modo headless, p.ej. sin microfono).
+
+Termina SIEMPRE imprimiendo un bloque:
+RESULTADO:
+- bugs_encontrados: <lista corta>
+- bugs_corregidos: <lista corta>
+- archivos_modificados: <lista>
+- smoke_test: PASS|FAIL|PARCIAL + motivo

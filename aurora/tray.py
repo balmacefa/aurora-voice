@@ -51,11 +51,14 @@ class TrayIcon:
     def _create_menu(self) -> pystray.Menu:
         """Crea el menú del icono de bandeja"""
         # Crear submenú de idiomas
+        # NOTA: pystray invoca action(icon, item) si la funcion tiene 2 args
+        # posicionales (incluso con defaults), lo que pisaba `lang=code`.
+        # Usamos una fabrica que devuelve un callable sin argumentos.
+        def make_action(lang):
+            return lambda: self._on_language_selected(lang)
+
         language_items = [
-            pystray.MenuItem(
-                name,
-                lambda _, lang=code: self._on_language_selected(lang)
-            )
+            pystray.MenuItem(name, make_action(code))
             for name, code in self.languages.items()
         ]
         
@@ -86,9 +89,11 @@ class TrayIcon:
     
     def _on_exit_clicked(self):
         """Handler para salir"""
-        self.on_exit()
-        if self.icon:
-            self.icon.stop()
+        try:
+            self.on_exit()
+        finally:
+            if self.icon:
+                self.icon.stop()
     
     def start(self):
         """Inicia el icono de bandeja en su propio thread"""

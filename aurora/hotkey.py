@@ -12,7 +12,8 @@ class HotkeyManager:
         self.current_combo: Optional[str] = None
         self.callback: Optional[Callable] = None
         self._running = False
-    
+        self._handle = None
+
     def start(self, combo: str, callback: Callable) -> bool:
         """
         Registra un hotkey global.
@@ -31,23 +32,27 @@ class HotkeyManager:
         self.callback = callback
         
         try:
-            keyboard.add_hotkey(combo, callback)
+            self._handle = keyboard.add_hotkey(combo, callback)
             self._running = True
             return True
         except Exception as e:
             print(f"Error registrando hotkey {combo}: {e}")
             self._running = False
+            self._handle = None
             return False
-    
+
     def stop(self):
         """Desregistra el hotkey actual"""
-        if self._running and self.current_combo:
+        if self._running and self._handle is not None:
             try:
-                keyboard.remove_hotkey(self.current_combo)
+                # Usar el handle: remove_hotkey(combo) puede quitar tambien
+                # otros registros con la misma combinacion.
+                keyboard.remove_hotkey(self._handle)
             except Exception as e:
                 print(f"Error removiendo hotkey: {e}")
-        
+
         self._running = False
+        self._handle = None
         self.current_combo = None
         self.callback = None
     
@@ -66,18 +71,19 @@ class HotkeyManager:
             return False
         
         callback = self.callback
-        old_combo = self.current_combo
-        
+        old_handle = self._handle
+
         # Intentar registrar el nuevo hotkey primero
         try:
-            keyboard.add_hotkey(new_combo, callback)
+            new_handle = keyboard.add_hotkey(new_combo, callback)
             # Si fue exitoso, desregistrar el anterior
-            if old_combo and self._running:
+            if old_handle is not None and self._running:
                 try:
-                    keyboard.remove_hotkey(old_combo)
+                    keyboard.remove_hotkey(old_handle)
                 except Exception as e:
                     print(f"Advertencia al remover hotkey anterior: {e}")
-            
+
+            self._handle = new_handle
             self.current_combo = new_combo
             self._running = True
             return True

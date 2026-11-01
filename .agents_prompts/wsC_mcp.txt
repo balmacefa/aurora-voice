@@ -1,0 +1,32 @@
+Construye el CONTROL HEADLESS + servidor MCP para Aurora (app de dictado por voz, GUI tkinter en el directorio actual) para poder controlarla sin usar la UI.
+
+ALCANCE ESTRICTO (no salirte):
+- Crea SOLO estos dos archivos NUEVOS: aurora/ipc.py  y  tools/aurora_mcp.py.
+- NO modifiques app.py, main.py ni ningun archivo existente (otro agente edita aurora/*.py en paralelo). Puedes LEER app.py para entender la clase App, pero NO la escribas.
+
+Archivo 1 - aurora/ipc.py (servidor de control local):
+- Servidor TCP en 127.0.0.1, puerto fijo 48123 configurable por variable de entorno AURORA_IPC_PORT.
+- Corre en un thread daemon; protocolo = lineas JSON (una peticion por linea, una respuesta JSON por linea).
+- Comandos: {"cmd":"status"} -> {ok, is_dictating, language, version}; {"cmd":"start"}; {"cmd":"stop"}; {"cmd":"toggle"}; {"cmd":"set_language","language":"es-ES"}; {"cmd":"quit"}.
+- Expone clase ControlServer(app) que recibe la instancia App y llama de forma thread-safe a: app.toggle_dictation(), app._start_dictation(), app._stop_dictation(), lee app.is_dictating y app.config.language, y para set_language actualiza app.config (y re-aplica si esta dictando). Usa app.root.after(...) para operaciones que deban correr en el thread de tkinter cuando aplique.
+- Funcion start_control_server(app) -> arranca el thread y devuelve el ControlServer. Maneja errores si el puerto esta ocupado (loguea y no crashea la app).
+- Al principio del archivo, en un comentario, escribe la LINEA EXACTA de integracion que hay que anadir dentro de App.run() (p.ej. justo despues de crear el tray): from aurora.ipc import start_control_server; start_control_server(self)
+
+Archivo 2 - tools/aurora_mcp.py (servidor MCP):
+- Cabecera PEP723 para uv:  # /// script  con requires-python>=3.10 y dependencies = ["mcp>=1.2.0,<2"].
+- Usa from mcp.server.fastmcp import FastMCP; nombre del server = "aurora".
+- Variables de entorno: AURORA_HOME (raiz del proyecto; por defecto deducir como parent del parent de este archivo), AURORA_PY (python para lanzar; por defecto C:\\Users\\fabia\\AppData\\Local\\Programs\\Python\\Python312\\python.exe), AURORA_IPC_PORT (48123).
+- Tools MCP (cada una devuelve dict con ok/stdout/stderr y datos parseados cuando aplique):
+  * aurora_launch() -> lanza la app: Popen([AURORA_PY, "main.py"], cwd=AURORA_HOME, detached, sin ventana de consola). No bloquea.
+  * aurora_status() -> conecta por socket al ControlServer y envia {"cmd":"status"}; devuelve el JSON.
+  * aurora_start(), aurora_stop(), aurora_toggle() -> envian el cmd correspondiente.
+  * aurora_set_language(language: str) -> envia set_language.
+  * aurora_quit() -> envia {"cmd":"quit"} y si hace falta termina el proceso main.py.
+- Helper _send(cmd_dict, timeout=5) que abre socket a 127.0.0.1:AURORA_IPC_PORT, manda la linea JSON, lee la respuesta, y devuelve dict; maneja ConnectionRefused con mensaje claro ("Aurora no esta corriendo; usa aurora_launch").
+- if __name__ == "__main__": mcp.run().
+
+Termina SIEMPRE imprimiendo:
+RESULTADO:
+- archivos_creados: aurora/ipc.py, tools/aurora_mcp.py
+- linea_integracion_app_run: <la linea exacta a anadir en App.run()>
+- puerto_ipc: 48123

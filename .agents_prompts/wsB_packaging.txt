@@ -1,0 +1,22 @@
+Crea el empaquetado del EJECUTABLE de Aurora (app Python de dictado por voz, GUI tkinter, entry = main.py) en el directorio actual.
+
+ALCANCE ESTRICTO (no salirte):
+- Crea SOLO archivos nuevos dentro de una carpeta NUEVA llamada packaging/.
+- NO modifiques NINGUN archivo existente. NO toques aurora/, main.py, requirements.txt, tests/.
+- NO ejecutes el build tu mismo (otro paso lo correra despues).
+
+Contexto tecnico:
+- Python objetivo: C:\Users\fabia\AppData\Local\Programs\Python\Python312\python.exe
+- Dependencias (requirements.txt): winrt-runtime, winrt-windows-media-speechrecognition, winrt-windows-globalization, winrt-windows-foundation, keyboard, pystray, pillow.
+- Es una app con icono de bandeja (pystray) y overlay tkinter; debe empaquetarse como windowed (sin consola), onedir, nombre "Aurora".
+
+Entrega (todos dentro de packaging/):
+1) packaging/Aurora.spec  -> spec de PyInstaller: onedir, windowed, name='Aurora', entry main.py (ruta absoluta o relativa correcta), con hiddenimports para los modulos winrt (winrt.windows.media.speechrecognition, winrt.windows.globalization, winrt.windows.foundation, winrt.runtime y submodulos necesarios), keyboard, pystray, PIL. Incluye collect de datos si hace falta. Si existe algun icono en el repo, usalo; si no, deja icon=None.
+2) packaging/build.ps1 -> PowerShell que: usa el Python de arriba, crea/usa un venv local packaging/.venv, instala -r requirements.txt y pyinstaller, y corre: pyinstaller packaging/Aurora.spec --noconfirm --clean. Debe imprimir la ruta del exe resultante (dist/Aura... -> dist/Aurora/Aurora.exe).
+3) packaging/README.md -> como construir y donde queda el exe, mas la nota de que el hotkey global requiere admin.
+
+Usa rutas correctas del proyecto. Termina imprimiendo:
+RESULTADO:
+- archivos_creados: <lista>
+- hiddenimports_clave: <lista>
+- comando_build: <el comando exacto>
