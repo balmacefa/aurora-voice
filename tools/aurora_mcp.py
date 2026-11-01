@@ -116,5 +116,41 @@ def aurora_quit() -> dict:
     return res
 
 
+def _run_main_flags(flags: list, timeout: float) -> dict:
+    """Ejecuta main.py con flags (modo dev) y devuelve stdout parseado si es JSON."""
+    cf = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    try:
+        p = subprocess.run([AURORA_PY, "main.py", *flags], cwd=AURORA_HOME,
+                           capture_output=True, text=True, timeout=timeout,
+                           creationflags=cf)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "stdout": "", "stderr": f"Timeout ({timeout}s)"}
+    except OSError as e:
+        return {"ok": False, "stdout": "", "stderr": f"{type(e).__name__}: {e}"}
+    out = p.stdout.strip()
+    res = {"ok": p.returncode == 0, "stdout": out, "stderr": p.stderr.strip()}
+    for line in reversed(out.splitlines()):
+        try:
+            res["result"] = json.loads(line)
+            break
+        except ValueError:
+            continue
+    return res
+
+
+@mcp.tool()
+def aurora_check_update() -> dict:
+    """Comprueba si hay una version nueva en GitHub Releases (no descarga)."""
+    return _run_main_flags(["--check-update"], timeout=30)
+
+
+@mcp.tool()
+def aurora_update(dry_run: bool = False) -> dict:
+    """Actualiza Aurora desde GitHub Releases. dry_run=True solo descarga/prepara.
+    Nota: en modo dev (no exe portable) no reemplaza nada."""
+    flags = ["--update"] + (["--dry-run"] if dry_run else [])
+    return _run_main_flags(flags, timeout=180)
+
+
 if __name__ == "__main__":
     mcp.run()

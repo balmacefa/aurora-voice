@@ -7,6 +7,17 @@ from aurora.errors import UnsupportedOSError
 
 def main():
     """Función principal"""
+    if "--check-update" in sys.argv:
+        import json
+        from aurora import update
+        print(json.dumps(update.check_for_update(), ensure_ascii=False))
+        sys.exit(0)
+    if "--update" in sys.argv:
+        import json
+        from aurora import update
+        res = update.check_and_apply(dry_run="--dry-run" in sys.argv)
+        print(json.dumps(res, ensure_ascii=False))
+        sys.exit(0)
     try:
         app = App()
         app.run()
