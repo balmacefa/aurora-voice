@@ -43,3 +43,12 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# build / orquestacion
+build/
+dist/
+.venv/
+packaging/.venv/
+.agents_prompts/
+__pycache__/
+*.pyc
